@@ -36,7 +36,7 @@ class LLMManager {
   }
 
   buildPrompt(context) {
-    const { userMessage, relevantMemories, searchResults, emotionState } = context;
+    const { userMessage, relevantMemories, searchResults, emotionState, presenceSummary } = context;
     
     let prompt = this.characterPrompt;
     prompt += '\n\n' + this.systemRules;
@@ -57,6 +57,10 @@ class LLMManager {
     
     if (emotionState) {
       prompt += `\n\n## Current Emotional State: ${emotionState}\n`;
+    }
+
+    if (presenceSummary) {
+      prompt += `\n\n## Conversation Presence:\n${presenceSummary}\n`;
     }
     
     prompt += `\n\nUser: ${userMessage}\n`;
