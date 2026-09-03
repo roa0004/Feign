@@ -1,0 +1,5 @@
+{
+  "shortAwayMinutes": 5,
+  "longAwayMinutes": 120,
+  "sessionTimeoutMinutes": 1440
+}

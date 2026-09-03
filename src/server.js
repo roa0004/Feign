@@ -1,10 +1,7 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
+const TimePresenceManager = require('./managers/time_presence');
 const fs = require('fs');
-require('dotenv').config();
 
+// Initialize managers
 const LLMManager = require('./llm_manager');
 const MemoryManager = require('./memory_manager');
 const SearchManager = require('./search_manager');
@@ -14,15 +11,17 @@ const EmotionManager = require('./emotion_manager');
 const Logger = require('./logger');
 const QRCodeGenerator = require('./qrcode_generator');
 
-const app = express();
+const app = require('express')();
+const http = require('http');
+const WebSocket = require('ws');
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const logger = new Logger();
 
 // Middleware
-app.use(express.json());
-app.use(express.static('public'));
+app.use(require('express').json());
+app.use(require('express').static('public'));
 
 // Initialize managers
 const llmManager = new LLMManager();
@@ -31,6 +30,7 @@ const searchManager = new SearchManager();
 const ttsManager = new TTSManager();
 const avatarManager = new AvatarManager();
 const emotionManager = new EmotionManager();
+const timePresence = new TimePresenceManager();
 
 let sessionId = null;
 let isReiConnected = false;
@@ -38,7 +38,7 @@ let phoneConnected = false;
 
 // Routes
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+  res.sendFile(require('path').join(__dirname, '../public/index.html'));
 });
 
 app.get('/api/qrcode', async (req, res) => {
@@ -52,7 +52,7 @@ app.get('/api/qrcode', async (req, res) => {
 });
 
 app.get('/connect', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/phone.html'));
+  res.sendFile(require('path').join(__dirname, '../public/phone.html'));
 });
 
 // WebSocket connection handling
@@ -67,6 +67,8 @@ wss.on('connection', (ws) => {
       if (data.type === 'phone_connect') {
         phoneConnected = true;
         sessionId = data.sessionId;
+        timePresence.startSession(sessionId);
+        timePresence.touchUserMessage(sessionId);
         logger.info(`Phone connected: ${sessionId}`);
         ws.send(JSON.stringify({ type: 'connected', message: 'Connected to Rei-chan' }));
         return;
@@ -76,6 +78,9 @@ wss.on('connection', (ws) => {
       if (data.type === 'chat' && phoneConnected) {
         const userMessage = data.text;
         logger.info(`User message: ${userMessage}`);
+
+        // Update presence
+        timePresence.touchUserMessage(sessionId);
 
         // Retrieve relevant memories
         const relevantMemories = await memoryManager.retrieveRelevant(userMessage);
@@ -89,12 +94,16 @@ wss.on('connection', (ws) => {
           logger.info(`Search executed for: ${userMessage}`);
         }
 
+        // Assemble presence summary for LLM context
+        const presenceSummary = timePresence.summaryForPrompt(sessionId);
+
         // Generate response using LLM
         const response = await llmManager.generateResponse({
           userMessage,
           relevantMemories,
           searchResults,
-          emotionState: emotionManager.getCurrentEmotion()
+          emotionState: emotionManager.getCurrentEmotion(),
+          presenceSummary
         });
 
         // Update emotion based on interaction
@@ -110,6 +119,9 @@ wss.on('connection', (ws) => {
           ai_response: response,
           timestamp: new Date()
         });
+
+        // Update presence with AI response time
+        timePresence.touchAIResponse(sessionId);
 
         // Send response to phone
         ws.send(JSON.stringify({
