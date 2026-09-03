@@ -1,1 +1,133 @@
-@echo off\nsetlocal enabledelayedexpansion\n\nREM Rei-chan AI Companion - Windows Startup Script\nREM This script downloads and sets up everything needed to run Rei-chan locally\n\nREM Get the directory where this script is located\nset \"SCRIPT_DIR=%~dp0\"\nREM Remove trailing backslash\nif \"%SCRIPT_DIR:~-1%\"==\"\\\" set \"SCRIPT_DIR=%SCRIPT_DIR:~0,-1%\"\n\nREM Change to script directory\ncd /d \"%SCRIPT_DIR%\" || (\n    echo [ERROR] Failed to change directory to %SCRIPT_DIR%\n    pause\n    exit /b 1\n)\n\necho.\necho ===============================================\necho れいちゃん AI Companion System\necho Local Setup & Launch\necho ===============================================\necho.\n\necho Working directory: !CD!\necho.\n\nREM Verify we're in the right place\nif not exist \"package.json\" (\n    echo [ERROR] package.json not found in %CD%\n    echo Make sure you're running this script from the rei-chan-ai-companion directory\n    pause\n    exit /b 1\n)\n\necho [OK] Found package.json - correct directory confirmed\necho.\n\nREM Check if Node.js is installed\nnode --version >nul 2>&1\nif errorlevel 1 (\n    echo [ERROR] Node.js is not installed or not in PATH\n    echo Please install Node.js 18+ from https://nodejs.org\n    pause\n    exit /b 1\n)\n\necho [OK] Node.js found: \nnode --version\n\nREM Check if Python is installed\npython --version >nul 2>&1\nif errorlevel 1 (\n    echo [ERROR] Python is not installed or not in PATH\n    echo Please install Python 3.10+ from https://www.python.org\n    pause\n    exit /b 1\n)\n\necho [OK] Python found: \npython --version\n\nREM Install Node dependencies\necho.\necho [STEP 1/5] Installing Node.js dependencies...\nif exist node_modules (\n    echo node_modules already exists, skipping...\n) else (\n    call npm install\n    if errorlevel 1 (\n        echo [ERROR] npm install failed\n        pause\n        exit /b 1\n    )\n)\n\necho [OK] Node dependencies installed\n\nREM Install Python dependencies\necho.\necho [STEP 2/5] Installing Python dependencies...\nif exist venv (\n    echo Python venv already exists, activating...\n    call venv\\Scripts\\activate.bat\n) else (\n    python -m venv venv\n    call venv\\Scripts\\activate.bat\n    pip install -r requirements.txt\n    if errorlevel 1 (\n        echo [ERROR] pip install failed\n        pause\n        exit /b 1\n    )\n)\n\necho [OK] Python dependencies installed\n\nREM Check if .env exists, if not copy from .env.example\necho.\necho [STEP 3/5] Checking configuration...\nif exist .env (\n    echo .env already exists\n) else (\n    if exist .env.example (\n        copy .env.example .env\n        echo [OK] Created .env from template\n    ) else (\n        echo [WARNING] .env.example not found, creating default .env\n        (\n            echo NODE_ENV=development\n            echo PORT=3000\n            echo HOST=localhost\n            echo OLLAMA_URL=http://localhost:11434\n            echo OLLAMA_MODEL=mistral\n            echo SEARCH_PROVIDER=searxng_local\n            echo SEARXNG_URL=http://localhost:8888\n            echo TTS_ENGINE=piper\n            echo AVATAR_SYSTEM=live2d\n        ) > .env\n    )\n)\n\necho [OK] Configuration ready\n\nREM Check if Ollama is installed\necho.\necho [STEP 4/5] Checking Ollama...\nollama --version >nul 2>&1\nif errorlevel 1 (\n    echo [INFO] Ollama not found, downloading...\n    REM Ollama installer will be downloaded and run\n    powershell -Command \"& {\n        $ProgressPreference = 'SilentlyContinue';\n        Write-Host 'Downloading Ollama...';\n        Invoke-WebRequest -Uri 'https://ollama.ai/download/windows' -OutFile 'OllamaInstaller.exe';\n        Write-Host 'Installing Ollama...';\n        Start-Process -FilePath '.\\OllamaInstaller.exe' -Wait;\n        Remove-Item 'OllamaInstaller.exe';\n        Write-Host 'Ollama installed';\n    }\"\n    echo [OK] Ollama installed\n) else (\n    echo [OK] Ollama found: \n    ollama --version\n)\n\nREM Create necessary directories\necho.\necho [STEP 5/5] Setting up directories...\nif not exist logs mkdir logs\nif not exist memory_db mkdir memory_db\nif not exist public\\avatar mkdir public\\avatar\n\necho [OK] Directories ready\n\nREM Start the application\necho.\necho ===============================================\necho Starting Rei-chan server...\necho ===============================================\necho.\necho Server will run on http://localhost:3000\necho Scan QR code on phone to connect\necho.\necho Press Ctrl+C to stop\necho.\n\nREM Start Ollama in background if not running\ntasklist /FI \"IMAGENAME eq ollama.exe\" 2>NUL | find /I /N \"ollama.exe\">NUL\nif errorlevel 1 (\n    echo Starting Ollama in background...\n    start /B ollama serve\n    REM Give Ollama time to start\n    timeout /t 3 /nobreak\n)\n\nREM Verify src/server.js exists\nif not exist \"src\\server.js\" (\n    echo [ERROR] src/server.js not found\n    echo Current directory: !CD!\n    echo.\n    dir\n    pause\n    exit /b 1\n)\n\necho [OK] src/server.js found, starting...\necho.\n\nREM Start the Node server\nnode src/server.js\n\npause\n
+@echo off
+REM start.bat - Rei-chan project bootstrap for Windows
+REM Safe, idempotent, does not overwrite existing .env or reinstall Ollama
+
+SETLOCAL ENABLEDELAYEDEXPANSION
+
+echo =============================
+echo Rei-chan - Windows bootstrap
+echo =============================
+:: Change working directory to the script location to make paths safe when there are spaces
+cd /d "%~dp0"
+:: Check Node.js availability
+where node >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] Node.js is not found in PATH.
+  echo Please install Node.js (>=18) from https://nodejs.org/ and re-run this script.
+  pause
+  exit /b 1
+) else (
+  node -v
+  npm -v
+)
+:: Check Python availability (py -3 preferred)
+set "PY_CMD="
+py -3 --version >nul 2>&1
+if errorlevel 1 (
+  python --version >nul 2>&1
+  if errorlevel 1 (
+    set "PY_CMD="
+  ) else (
+    set "PY_CMD=python"
+  )
+) else (
+  set "PY_CMD=py -3"
+)
+if "%PY_CMD%"=="" (
+  echo [WARN] Python not found. Skipping virtualenv and Python dependency setup.
+) else (
+  echo Python runtime: %PY_CMD%
+)
+:: Ensure .env exists (do not overwrite if present)
+if not exist ".env" (
+  if exist ".env.example" (
+    copy ".env.example" ".env" >nul
+    echo Created .env from .env.example (please edit sensitive values in .env before first run).
+  ) else (
+    echo [WARN] .env.example not found; please create .env manually.
+  )
+) else (
+  echo .env already exists; will not overwrite.
+)
+:: NPM install if node_modules missing
+if not exist "node_modules" (
+  echo node_modules not found. Installing npm dependencies...
+  npm ci || npm install
+) else (
+  echo node_modules exists. Skipping npm install. If you need to reinstall, run: npm ci
+)
+:: Python venv & requirements (if Python present)
+if not "%PY_CMD%"=="" (
+  if exist "requirements.txt" (
+    if not exist ".venv\Scripts\python.exe" (
+      echo Creating Python virtual environment in .venv ...
+      %PY_CMD% -m venv .venv
+      if errorlevel 1 (
+        echo [ERROR] Failed to create Python virtual environment. Please create one manually.
+      ) else (
+        echo Installing Python requirements into .venv ...
+        call ".venv\Scripts\pip.exe" install --upgrade pip setuptools wheel
+        call ".venv\Scripts\pip.exe" install -r requirements.txt
+      )
+    ) else (
+      echo Python virtual environment (.venv) already exists. Skipping venv creation.
+    )
+  ) else (
+    echo requirements.txt not found. Skipping Python dependency installation.
+  )
+)
+:: Ollama: check presence but DO NOT auto-install Ollama.
+where ollama >nul 2>&1
+if errorlevel 1 (
+  echo [WARN] Ollama CLI not found in PATH.
+  echo If you plan to use local Ollama, please install it following OLLAMA_SETUP.md.
+) else (
+  echo Ollama CLI detected.
+  rem Get model name from environment or .env (do not change any values)  
+  set "MODEL=%OLLAMA_MODEL%"
+  if "!MODEL!"=="" (
+    if exist ".env" (
+      for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
+        if /i "%%~A"=="OLLAMA_MODEL" set "MODEL=%%~B"
+      )
+    )
+  )
+  if "!MODEL!"=="" (
+    echo OLLAMA_MODEL not set. The script will not assume a default model.
+  ) else (
+    echo Checking Ollama for model "!MODEL!" ...
+    ollama list 2>nul | findstr /I "!MODEL!" >nul
+    if errorlevel 1 (
+      echo Model "!MODEL!" not found locally.
+      set /p DO_PULL="Would you like to attempt 'ollama pull !MODEL!' now? (y/N) > "
+      if /I "!DO_PULL!"=="y" (
+        echo Pulling model !MODEL! ...
+        ollama pull "!MODEL!"
+        if errorlevel 1 (
+          echo [ERROR] Failed to pull model !MODEL!. Please run 'ollama pull !MODEL!' manually.
+        ) else (
+          echo Model !MODEL! pulled successfully.
+        )
+      ) else (
+        echo Skipping model pull. You can run: ollama pull !MODEL!
+      )
+    ) else (
+      echo Model "!MODEL!" is present locally.
+    )
+  )
+)
+:: External components note (do not mislead)
+echo NOTE: This script does not automatically install/configure SearXNG, Piper TTS, Live2D, or other external services.
+echo Please refer to SEARXNG_SETUP.md, PIPER_SETUP.md, and OLLAMA_SETUP.md for manual installation steps when needed.
+:: Final: start the Node server
+echo Starting Rei-chan server (node src/server.js)...
+node "src/server.js" %*
+if errorlevel 1 (
+  echo [ERROR] Node application exited with code %ERRORLEVEL%.
+  echo Check server logs and ensure environment variables in .env are correctly set.
+  pause
+  endlocal & exit /b %ERRORLEVEL%
+)
+
+echo Server stopped. Exiting.
+ENDLOCAL
